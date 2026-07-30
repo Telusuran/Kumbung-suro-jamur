@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Otomatisasi Jamur</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Paho MQTT Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript"></script>
+    <style>
+        :root {
+            --primary: #10B981;
+            --primary-glow: rgba(16, 185, 129, 0.4);
+            --danger: #EF4444;
+            --warning: #F59E0B;
+            --bg-color: #0F172A;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(16, 185, 129, 0.1), transparent 30%),
+                radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.1), transparent 30%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 2rem 1rem;
+        }
+
+        .dashboard-container {
+            width: 100%; max-width: 450px;
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 28px;
+            padding: 2rem 1.5rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 1.5rem; font-weight: 700; margin-bottom: 0.2rem;
+            background: linear-gradient(to right, #38BDF8, #10B981);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 14px; border-radius: 99px;
+            background: rgba(255,255,255,0.05); font-size: 0.8rem;
+            margin-bottom: 2rem; border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background-color: var(--danger); box-shadow: 0 0 10px var(--danger);
+        }
+        .status-dot.connected { background-color: var(--primary); box-shadow: 0 0 10px var(--primary); }
+
+        /* Toggle Button */
+        .toggle-btn {
+            position: relative; width: 130px; height: 130px; border-radius: 50%;
+            border: none; background: linear-gradient(145deg, #1e293b, #0f172a);
+            box-shadow: 10px 10px 20px #090e19, -10px -10px 20px #15203b;
+            color: var(--text-muted); font-size: 1.2rem; font-weight: 700;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 2rem auto; transition: all 0.3s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .toggle-btn::after {
+            content: ''; position: absolute; width: 100px; height: 100px;
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.05);
+        }
+        .toggle-btn:active { transform: scale(0.95); }
+        .toggle-btn.on { color: var(--primary); box-shadow: 10px 10px 20px #090e19, -10px -10px 20px #15203b, inset 0 0 15px var(--primary-glow); }
+        .toggle-btn.on::after { border-color: var(--primary); box-shadow: 0 0 15px var(--primary-glow); }
+
+        /* Layout Cards */
+        .card {
+            background: rgba(0,0,0,0.25); padding: 1.2rem; border-radius: 16px;
+            text-align: left; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 1rem;
+        }
+        .card-header { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+
+        /* Forms & Inputs */
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        input {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            color: white; padding: 8px 12px; border-radius: 8px; font-size: 1rem; width: 100%; outline: none;
+        }
+        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.5; }
+        .btn-action {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);
+            color: white; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 500; width: 100%; transition: all 0.2s;
+        }
+        .btn-action:hover { background: rgba(255,255,255,0.2); }
+        .btn-action.active { background: var(--primary); border-color: var(--primary); color: #000; }
+        .btn-small { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+        .btn-danger { background: rgba(239, 68, 68, 0.2); color: #FCA5A5; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+        /* Dynamic Schedule List */
+        .schedule-item { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.02); }
+        .schedule-item span { color: var(--text-muted); font-size: 0.85rem; }
+
+        /* Circular Clock */
+        .clock-container { position: relative; width: 160px; height: 160px; margin: 1.5rem auto; }
+        .clock-svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+        .clock-bg { fill: none; stroke: rgba(255,255,255,0.05); stroke-width: 12; }
+        .clock-progress { fill: none; stroke: var(--warning); stroke-width: 12; stroke-linecap: round; transition: all 0.5s; }
+        .clock-labels { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .clock-labels span { font-size: 0.75rem; color: var(--text-muted); }
+        .clock-labels strong { font-size: 1.1rem; color: var(--text-main); margin: 4px 0; }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <h1>Dashboard Otomatisasi</h1>
+        <p class="subtitle">Kumbung Suro - Zona 1</p>
+
+        <div class="status-badge">
+            <div class="status-dot" id="brokerDot"></div>
+            <span id="brokerStatusText">Menghubungkan...</span>
+        </div>
+
+        <button class="toggle-btn" id="pumpBtn" onclick="togglePump()">MATI</button>
+
+        <div class="card" style="text-align: center;">
+            <div class="card-header" style="justify-content: center;">Status Alat</div>
+            <strong id="espStatus" style="color: var(--primary);">Menunggu data MQTT...</strong>
+        </div>
+
+        <!-- Timer Hitung Mundur -->
+        <div class="card">
+            <div class="card-header">
+                <span>⏱️ Timer Manual</span>
+                <span id="countdownDisplay" style="color: var(--warning); font-weight: 700; display: none; font-size: 1.1rem;">00:00</span>
+            </div>
+            <div class="input-group" id="timerInputGroup">
+                <input type="number" id="timerInput" placeholder="Menit (Misal: 15)">
+                <button class="btn-action" onclick="setTimer()" style="width: auto;">Mulai</button>
+            </div>
+        </div>
+
+        <!-- Jadwal Harian -->
+        <div class="card">
+            <div class="card-header">
+                <span>🕒 Jadwal Otomatis (Maks 5)</span>
+                <button class="btn-small" onclick="addSchedule()">+ Tambah</button>
+            </div>
+            
+            <div class="clock-container">
+                <svg class="clock-svg" viewBox="0 0 160 160">
+                    <circle class="clock-bg" cx="80" cy="80" r="70"></circle>
+                    <g id="multiClockContainer"></g>
+                </svg>
+                <div class="clock-labels">
+                    <span>Total ON</span>
+                    <strong id="durationLabel">0 Jam</strong>
+                    <span id="rangeLabel">0 Jadwal</span>
+                </div>
+            </div>
+
+            <div id="scheduleList"></div>
+            <button class="btn-action active" id="btnSchedule" onclick="saveSchedules()" style="margin-top: 10px;">Kirim & Simpan Jadwal</button>
+        </div>
+    </div>
+
+    <script>
+        const broker = "broker.hivemq.com";
+        const port = 8000;
+        const clientId = "WebKumbung-" + Math.random().toString(16).substr(2, 8);
+        const topicPerintah = "suro-kumbung-x9a4b2/pompa1/perintah";
+        const topicStatus = "suro-kumbung-x9a4b2/pompa1/status";
+        const topicJadwal = "suro-kumbung-x9a4b2/pompa1/jadwal";
+
+        let client = new Paho.MQTT.Client(broker, port, clientId);
+        let pumpState = false;
+        let countdownInterval;
+        let schedules = [ {start: "08:00", end: "08:15"} ]; // Default
+
+        client.onConnectionLost = (resp) => {
+            if (resp.errorCode !== 0) {
+                document.getElementById("brokerDot").classList.remove("connected");
+                document.getElementById("brokerStatusText").innerText = "Terputus";
+            }
+        };
+
+        client.onMessageArrived = (message) => {
+            const payload = message.payloadString;
+            const topic = message.destinationName;
+
+            if (topic === topicStatus) {
+                document.getElementById("espStatus").innerText = payload;
+                const btn = document.getElementById("pumpBtn");
+                if(payload.includes("NYALA")) {
+                    pumpState = true; btn.classList.add("on"); btn.innerText = "NYALA";
+                } else if (payload.includes("MATI")) {
+                    pumpState = false; btn.classList.remove("on"); btn.innerText = "MATI";
+                    stopCountdown();
+                }
+            } 
+            else if (topic === topicJadwal) {
+                // Auto-sync schedule from Retained Message
+                // Format: JADWAL:08:00-08:15,13:00-13:20
+                if (payload.startsWith("JADWAL:")) {
+                    parseSchedules(payload.substring(7));
+                }
+            }
+        };
+
+        client.connect({
+            onSuccess: () => {
+                document.getElementById("brokerDot").classList.add("connected");
+                document.getElementById("brokerStatusText").innerText = "Terhubung";
+                client.subscribe(topicStatus);
+                client.subscribe(topicJadwal); // Ambil retained message
+            },
+            useSSL: false,
+            onFailure: (e) => alert("Gagal terhubung ke Broker MQTT.")
+        });
+
+        function togglePump() {
+            if (!client.isConnected()) return;
+            pumpState = !pumpState;
+            const perintah = pumpState ? "NYALA" : "MATI";
+            const btn = document.getElementById("pumpBtn");
+            if(pumpState) { btn.classList.add("on"); btn.innerText = "NYALA"; } 
+            else { btn.classList.remove("on"); btn.innerText = "MATI"; }
+            
+            let message = new Paho.MQTT.Message(perintah);
+            message.destinationName = topicPerintah;
+            client.send(message);
+        }
+
+        // --- Fitur Timer ---
+        function setTimer() {
+            if (!client.isConnected()) return;
+            const menit = parseInt(document.getElementById("timerInput").value);
+            if(!menit || menit <= 0) return;
+            let message = new Paho.MQTT.Message("TIMER:" + menit);
+            message.destinationName = topicPerintah; 
+            client.send(message);
+            startCountdown(menit * 60);
+        }
+        function startCountdown(seconds) {
+            clearInterval(countdownInterval);
+            document.getElementById("timerInputGroup").style.display = "none";
+            document.getElementById("countdownDisplay").style.display = "block";
+            let timeLeft = seconds;
+            countdownInterval = setInterval(() => {
+                let m = Math.floor(timeLeft / 60); let s = timeLeft % 60;
+                document.getElementById("countdownDisplay").innerText = (m<10?"0":"")+m+":"+(s<10?"0":"")+s;
+                if (timeLeft <= 0) stopCountdown();
+                timeLeft--;
+            }, 1000);
+        }
+        function stopCountdown() {
+            clearInterval(countdownInterval);
+            document.getElementById("countdownDisplay").style.display = "none";
+            document.getElementById("timerInputGroup").style.display = "flex";
+            document.getElementById("timerInput").value = "";
+        }
+
+        // --- Fitur Multi-Jadwal ---
+        function parseSchedules(payload) {
+            schedules = [];
+            const parts = payload.split(",");
+            parts.forEach(p => {
+                if(p.includes("-")) {
+                    const times = p.split("-");
+                    schedules.push({start: times[0], end: times[1]});
+                }
+            });
+            renderSchedules();
+        }
+
+        function addSchedule() {
+            if(schedules.length >= 5) { alert("Maksimal 5 Jadwal!"); return; }
+            schedules.push({start: "12:00", end: "12:15"});
+            renderSchedules();
+        }
+
+        function removeSchedule(index) {
+            schedules.splice(index, 1);
+            renderSchedules();
+        }
+
+        function updateScheduleValue(index, type, val) {
+            schedules[index][type] = val;
+            drawClockVisuals();
+        }
+
+        function renderSchedules() {
+            const list = document.getElementById("scheduleList");
+            list.innerHTML = "";
+            schedules.forEach((sch, index) => {
+                const item = document.createElement("div");
+                item.className = "schedule-item";
+                item.innerHTML = `
+                    <input type="time" value="${sch.start}" onchange="updateScheduleValue(${index}, 'start', this.value)">
+                    <span>s/d</span>
+                    <input type="time" value="${sch.end}" onchange="updateScheduleValue(${index}, 'end', this.value)">
+                    <button class="btn-small btn-danger" onclick="removeSchedule(${index})">X</button>
+                `;
+                list.appendChild(item);
+            });
+            drawClockVisuals();
+        }
+
+        function drawClockVisuals() {
+            const container = document.getElementById("multiClockContainer");
+            container.innerHTML = ""; 
+            let totalMinutes = 0;
+            
+            schedules.forEach(sch => {
+                if(!sch.start || !sch.end) return;
+                const startParts = sch.start.split(":");
+                const endParts = sch.end.split(":");
+                const startMin = (parseInt(startParts[0]) * 60) + parseInt(startParts[1]);
+                let endMin = (parseInt(endParts[0]) * 60) + parseInt(endParts[1]);
+                if(endMin < startMin) endMin += (24 * 60);
+                
+                const durMin = endMin - startMin;
+                totalMinutes += durMin;
+                
+                const circumference = 440;
+                const fraction = durMin / 1440;
+                const dashoffset = circumference - (fraction * circumference);
+                const startAngle = (startMin / 1440) * 360;
+                
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", "80");
+                circle.setAttribute("cy", "80");
+                circle.setAttribute("r", "70");
+                circle.setAttribute("class", "clock-progress");
+                circle.style.strokeDasharray = circumference;
+                circle.style.strokeDashoffset = dashoffset;
+                circle.style.transform = `rotate(${startAngle}deg)`;
+                circle.style.transformOrigin = "80px 80px";
+                
+                container.appendChild(circle);
+            });
+            
+            document.getElementById("durationLabel").innerText = (totalMinutes / 60).toFixed(1) + " Jam";
+            document.getElementById("rangeLabel").innerText = schedules.length + " Sesi";
+        }
+
+        function saveSchedules() {
+            if (!client.isConnected()) return;
+            if (schedules.length === 0) {
+                // Hapus jadwal dengan mengirim string kosong / tanda khusus
+                let message = new Paho.MQTT.Message("JADWAL:KOSONG");
+                message.destinationName = topicJadwal;
+                message.retained = true; 
+                client.send(message);
+            } else {
+                // Format: JADWAL:08:00-08:15,12:00-12:15
+                let csv = schedules.map(s => s.start + "-" + s.end).join(",");
+                let message = new Paho.MQTT.Message("JADWAL:" + csv);
+                message.destinationName = topicJadwal;
+                message.retained = true; 
+                client.send(message);
+            }
+            
+            const btn = document.getElementById("btnSchedule");
+            btn.innerText = "Tersimpan ✓";
+            btn.style.background = "var(--primary)";
+            setTimeout(() => { btn.innerText = "Kirim & Simpan Jadwal"; btn.style.background = "var(--primary)"; }, 2000);
+        }
+
+        renderSchedules();
+    </script>
+</body>
+</html>
