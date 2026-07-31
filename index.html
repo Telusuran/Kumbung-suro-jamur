@@ -128,7 +128,7 @@
         <h1>Dashboard Otomatisasi</h1>
         <p class="subtitle">Kumbung Suro - Zona 1</p>
 
-        <div class="status-badge">
+        <div class="status-badge" onclick="toggleConnection()" style="cursor: pointer; background: rgba(255,255,255,0.1);" title="Klik untuk Putus/Sambung Koneksi">
             <div class="status-dot" id="brokerDot"></div>
             <span id="brokerStatusText">Menghubungkan...</span>
         </div>
@@ -179,7 +179,7 @@
     <script>
         const broker = "broker.hivemq.com";
         const port = 8000;
-        const clientId = "WebKumbung-" + Math.random().toString(16).substr(2, 8);
+        const clientId = "Web-" + Date.now(); // Pastikan ID selalu baru tiap kali halamam dimuat
         const topicPerintah = "suro-kumbung-x9a4b2/pompa1/perintah";
         const topicStatus = "suro-kumbung-x9a4b2/pompa1/status";
         const topicJadwal = "suro-kumbung-x9a4b2/pompa1/jadwal";
@@ -192,7 +192,7 @@
         client.onConnectionLost = (resp) => {
             if (resp.errorCode !== 0) {
                 document.getElementById("brokerDot").classList.remove("connected");
-                document.getElementById("brokerStatusText").innerText = "Terputus";
+                document.getElementById("brokerStatusText").innerText = "Terputus (Klik Konek)";
             }
         };
 
@@ -219,16 +219,35 @@
             }
         };
 
-        client.connect({
-            onSuccess: () => {
-                document.getElementById("brokerDot").classList.add("connected");
-                document.getElementById("brokerStatusText").innerText = "Terhubung";
-                client.subscribe(topicStatus);
-                client.subscribe(topicJadwal); // Ambil retained message
-            },
-            useSSL: false,
-            onFailure: (e) => alert("Gagal terhubung ke Broker MQTT.")
-        });
+        function connectMQTT() {
+            document.getElementById("brokerStatusText").innerText = "Menghubungkan...";
+            client.connect({
+                onSuccess: () => {
+                    document.getElementById("brokerDot").classList.add("connected");
+                    document.getElementById("brokerStatusText").innerText = "Terhubung (Putuskan)";
+                    client.subscribe(topicStatus);
+                    client.subscribe(topicJadwal); // Ambil retained message
+                },
+                useSSL: false,
+                onFailure: (e) => {
+                    alert("Gagal terhubung ke Broker MQTT.");
+                    document.getElementById("brokerStatusText").innerText = "Terputus (Konek)";
+                }
+            });
+        }
+
+        function toggleConnection() {
+            if (client.isConnected()) {
+                client.disconnect();
+                document.getElementById("brokerDot").classList.remove("connected");
+                document.getElementById("brokerStatusText").innerText = "Terputus (Klik Konek)";
+            } else {
+                connectMQTT();
+            }
+        }
+
+        // Jalankan koneksi saat pertama kali load
+        connectMQTT();
 
         function togglePump() {
             if (!client.isConnected()) return;
