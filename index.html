@@ -178,7 +178,7 @@
 
     <script>
         const broker = "broker.hivemq.com";
-        const port = 8000;
+        const port = 8884; // Gunakan port 8884 untuk Secure WebSockets (WSS)
         const clientId = "Web-" + Date.now(); // Pastikan ID selalu baru tiap kali halamam dimuat
         const topicPerintah = "suro-kumbung-x9a4b2/pompa1/perintah";
         const topicStatus = "suro-kumbung-x9a4b2/pompa1/status";
@@ -228,7 +228,7 @@
                     client.subscribe(topicStatus);
                     client.subscribe(topicJadwal); // Ambil retained message
                 },
-                useSSL: false,
+                useSSL: true, // Wajib true karena Vercel menggunakan HTTPS
                 onFailure: (e) => {
                     alert("Gagal terhubung ke Broker MQTT.");
                     document.getElementById("brokerStatusText").innerText = "Terputus (Konek)";
