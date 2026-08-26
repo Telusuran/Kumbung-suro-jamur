@@ -121,12 +121,39 @@
         .clock-labels { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .clock-labels span { font-size: 0.75rem; color: var(--text-muted); }
         .clock-labels strong { font-size: 1.1rem; color: var(--text-main); margin: 4px 0; }
+
+        /* Modal Login */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.95); z-index: 1000;
+            display: flex; justify-content: center; align-items: center;
+        }
+        .modal {
+            background: var(--card-bg); padding: 2rem; border-radius: 20px;
+            width: 90%; max-width: 350px; text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .modal input { margin-bottom: 15px; }
     </style>
 </head>
 <body>
+    <!-- Modal Login -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal">
+            <h2>Otorisasi Perangkat</h2>
+            <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem;">Masukkan PIN dan identitas untuk mengakses kontrol Kumbung.</p>
+            <input type="password" id="pinInput" placeholder="PIN 4 Digit (Default: 0000)" maxlength="4">
+            <input type="text" id="nameInput" placeholder="Nama Perangkat (Misal: HP-Ayah)">
+            <button class="btn-action active" onclick="login()">Masuk</button>
+        </div>
+    </div>
+
     <div class="dashboard-container">
-        <h1>Dashboard Otomatisasi</h1>
-        <p class="subtitle">Kumbung Suro - Zona 1</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem;">
+            <h1 style="margin-bottom: 0;">Dashboard</h1>
+            <button class="btn-small btn-danger" onclick="logout()">Logout</button>
+        </div>
+        <p class="subtitle">Kumbung Suro • <span id="userNameDisplay">Guest</span></p>
 
         <div class="status-badge" onclick="toggleConnection()" style="cursor: pointer; background: rgba(255,255,255,0.1);" title="Klik untuk Putus/Sambung Koneksi">
             <div class="status-dot" id="brokerDot"></div>
@@ -136,7 +163,10 @@
         <button class="toggle-btn" id="pumpBtn" onclick="togglePump()">MATI</button>
 
         <div class="card" style="text-align: center;">
-            <div class="card-header" style="justify-content: center;">Status Alat</div>
+            <div class="card-header" style="justify-content: center; gap: 8px;">
+                <div class="status-dot" id="deviceDot" style="background-color: var(--warning); box-shadow: none;" title="Status ESP8266"></div>
+                Status Alat
+            </div>
             <strong id="espStatus" style="color: var(--primary);">Menunggu data MQTT...</strong>
         </div>
 
@@ -183,6 +213,7 @@
         const topicPerintah = "suro-kumbung-x9a4b2/pompa1/perintah";
         const topicStatus = "suro-kumbung-x9a4b2/pompa1/status";
         const topicJadwal = "suro-kumbung-x9a4b2/pompa1/jadwal";
+        const topicKoneksi = "suro-kumbung-x9a4b2/pompa1/koneksi"; // LWT Topic
 
         let client = new Paho.MQTT.Client(broker, port, clientId);
         let pumpState = false;
@@ -217,6 +248,27 @@
                     parseSchedules(payload.substring(7));
                 }
             }
+            else if (topic === topicKoneksi) {
+                const deviceDot = document.getElementById("deviceDot");
+                const btn = document.getElementById("pumpBtn");
+                const espStatus = document.getElementById("espStatus");
+                
+                if (payload === "ONLINE") {
+                    deviceDot.style.backgroundColor = "var(--primary)";
+                    deviceDot.style.boxShadow = "0 0 10px var(--primary)";
+                    btn.disabled = false;
+                    btn.style.opacity = "1";
+                    espStatus.innerText = "Perangkat Siap!";
+                    espStatus.style.color = "var(--primary)";
+                } else if (payload === "OFFLINE") {
+                    deviceDot.style.backgroundColor = "var(--danger)";
+                    deviceDot.style.boxShadow = "0 0 10px var(--danger)";
+                    btn.disabled = true; // Kunci tombol agar tidak bisa dipencet saat offline
+                    btn.style.opacity = "0.4";
+                    espStatus.innerText = "OFFLINE. Cek Listrik/WiFi Kumbung.";
+                    espStatus.style.color = "var(--danger)";
+                }
+            }
         };
 
         function connectMQTT() {
@@ -227,6 +279,7 @@
                     document.getElementById("brokerStatusText").innerText = "Terhubung (Putuskan)";
                     client.subscribe(topicStatus);
                     client.subscribe(topicJadwal); // Ambil retained message
+                    client.subscribe(topicKoneksi); // Ambil status Online/Offline ESP
                 },
                 useSSL: true, // Wajib true karena Vercel menggunakan HTTPS
                 onFailure: (e) => {
@@ -246,29 +299,75 @@
             }
         }
 
+        // --- Sistem Otorisasi & Sesi ---
+        let authPin = localStorage.getItem("kumbung_pin") || "";
+        let deviceName = localStorage.getItem("kumbung_name") || "";
+
+        function checkAuth() {
+            if (authPin.length !== 4 || deviceName.trim() === "") {
+                document.getElementById("loginModal").style.display = "flex";
+            } else {
+                document.getElementById("loginModal").style.display = "none";
+                document.getElementById("userNameDisplay").innerText = deviceName;
+            }
+        }
+
+        function login() {
+            const pin = document.getElementById("pinInput").value;
+            const name = document.getElementById("nameInput").value;
+            if(pin.length === 4 && name.trim() !== "") {
+                localStorage.setItem("kumbung_pin", pin);
+                localStorage.setItem("kumbung_name", name);
+                authPin = pin; deviceName = name;
+                checkAuth();
+            } else {
+                alert("PIN harus 4 digit dan Nama tidak boleh kosong!");
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem("kumbung_pin");
+            localStorage.removeItem("kumbung_name");
+            authPin = ""; deviceName = "";
+            document.getElementById("pinInput").value = "";
+            checkAuth();
+        }
+
+        checkAuth(); // Cek login saat pertama kali load
+
         // Jalankan koneksi saat pertama kali load
         connectMQTT();
 
         function togglePump() {
             if (!client.isConnected()) return;
+            if (authPin === "") { alert("Silakan login dulu!"); return; }
+            
             pumpState = !pumpState;
-            const perintah = pumpState ? "NYALA" : "MATI";
+            const perintahDasar = pumpState ? "NYALA" : "MATI";
+            const perintahLengkap = `${authPin}#${perintahDasar}#${deviceName}`;
+            
             const btn = document.getElementById("pumpBtn");
             if(pumpState) { btn.classList.add("on"); btn.innerText = "NYALA"; } 
             else { btn.classList.remove("on"); btn.innerText = "MATI"; }
             
-            let message = new Paho.MQTT.Message(perintah);
+            let message = new Paho.MQTT.Message(perintahLengkap);
             message.destinationName = topicPerintah;
+            message.qos = 1; // QoS 1: Pastikan pasti terkirim
             client.send(message);
         }
 
         // --- Fitur Timer ---
         function setTimer() {
             if (!client.isConnected()) return;
+            if (authPin === "") { alert("Silakan login dulu!"); return; }
+            
             const menit = parseInt(document.getElementById("timerInput").value);
             if(!menit || menit <= 0) return;
-            let message = new Paho.MQTT.Message("TIMER:" + menit);
+            
+            const perintahLengkap = `${authPin}#TIMER:${menit}#${deviceName}`;
+            let message = new Paho.MQTT.Message(perintahLengkap);
             message.destinationName = topicPerintah; 
+            message.qos = 1;
             client.send(message);
             startCountdown(menit * 60);
         }
